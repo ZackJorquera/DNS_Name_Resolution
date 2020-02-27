@@ -147,7 +147,7 @@ void * requester_loop(requester_thread_input_t * input)
 
         sem_post(input->thread_input_p->shared_buf_space_used_sem_p); // We finished adding one
 
-        sleep(2);
+        //sleep(2);
     }
 
     return NULL; // TODO: make return info
@@ -162,9 +162,13 @@ void * resolver_loop(resolver_thread_input_t * input)
     {
         sem_wait(input->thread_input_p->shared_buf_space_used_sem_p); // We are removing 1 if we can
 
-
         sem_wait(input->thread_input_p->shared_buf_sem_p);
         // TODO: logic
+        if(input->thread_input_p->domain_name_request_buf.buf_len == 0) // Only if the requesters are done
+        {
+            sem_post(input->thread_input_p->shared_buf_sem_p);
+            break;
+        }
 
         input->thread_input_p->domain_name_request_buf.buf_len --;
         strncpy(buf_data, input->thread_input_p->domain_name_request_buf.buf_data[input->thread_input_p->domain_name_request_buf.buf_len], BUFF_ENTRY_SIZE);
@@ -176,7 +180,7 @@ void * resolver_loop(resolver_thread_input_t * input)
 
         sem_post(input->thread_input_p->shared_buf_space_avail_sem_p); // We finished removing one
 
-        sleep(2);
+        //sleep(2);
     }
 
     return NULL;
@@ -265,7 +269,16 @@ int start_requester_resolver_loop(int num_requesters,
     // wait on threads 
     // clean up threads
     for(int i = 0; i < num_requesters + num_resolvers; i++)
+    {
+        if(i == num_requesters) // We are done with all the requesting
+        {
+            printf("in %s: all requesters done\n", __FUNCTION__);
+            sem_post(shared_buf_space_used_sem_p); // Tells the resolvers that requesters are done. TODO: find a better way
+        }
+
         pthread_join(threads[i], NULL);
+        printf("in %s: thread %d exit\n", __FUNCTION__, i);
+    }
 
     free(shared_input_p);
     close_file_sem(requester_shared_input_p->in_file_p[0], in_file_io_mutex_p);
