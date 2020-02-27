@@ -328,7 +328,13 @@ int start_requester_resolver_loop(int num_requesters,
     }
 
     free(shared_input_p);
+
     close_file_sem(requester_shared_input_p->in_file_p[0], in_file_io_mutex_p);
+    close_file_sem(requester_shared_input_p->log_file_p, requester_log_file_io_mutex_p);
+    close_file_sem(resolver_shared_input_p->log_file_p, resolver_log_file_io_mutex_p);
+
+    free(requester_shared_input_p->in_file_p);
+
     free(requester_shared_input_p);
     free(resolver_shared_input_p);
 
