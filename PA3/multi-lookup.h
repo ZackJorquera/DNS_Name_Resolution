@@ -59,6 +59,12 @@ typedef struct
 
 } resolver_thread_input_t;
 
+typedef struct
+{
+    int file;
+    int files_served;
+} file_choice_data_t;
+
 /* End shared data structs */
 
 

@@ -120,39 +120,41 @@ int pick_new_infile(file_data_t * file_data, int file_data_len, sem_t * mutex_p)
     return ret;
 }
 
-int read_single_dn_from_file_data_list(file_data_t * file_data, int file_data_len, char* buf, int buf_len, sem_t * mutex_p, int * file_choice_data)
+int read_single_dn_from_file_data_list(file_data_t * file_data, int file_data_len, char* buf, int buf_len, sem_t * mutex_p, file_choice_data_t * file_choice_data)
 {
 #ifdef DEBUG
     printf("in %s\n", __FUNCTION__);
 #endif
 
-    if(*file_choice_data == -1)
+    if(file_choice_data->file == -1)
     {
         // pick new file file
-        *file_choice_data = pick_new_infile(file_data, file_data_len, mutex_p);
+        file_choice_data->file = pick_new_infile(file_data, file_data_len, mutex_p);
 
-        if(*file_choice_data == -1) // issue
+        if(file_choice_data->file == -1) // issue
             return 0; // No new file found
 
+        file_choice_data->files_served++;
 #ifdef VERBOSE
         printf("in %s, start reading filenum %d\n", __FUNCTION__, *file_choice_data);
 #endif
     }
 
-    int ret = read_single_dn_from_file_sem(file_data[*file_choice_data].file_ptr, buf, buf_len, file_data[*file_choice_data].file_mutex);
+    int ret = read_single_dn_from_file_sem(file_data[file_choice_data->file].file_ptr, buf, buf_len, file_data[file_choice_data->file].file_mutex);
 
     if(!ret) // We might need to file a new file
     {
-        *file_choice_data = pick_new_infile(file_data, file_data_len, mutex_p);
-        if(*file_choice_data == -1)
+        file_choice_data->file = pick_new_infile(file_data, file_data_len, mutex_p);
+        if(file_choice_data->file == -1)
             return 0; // No new file found
 
+        file_choice_data->files_served++;
 #ifdef VERBOSE
         printf("in %s, start reading filenum %d\n", __FUNCTION__, *file_choice_data);
 #endif
 
         // try again
-        ret = read_single_dn_from_file_sem(file_data[*file_choice_data].file_ptr, buf, buf_len, file_data[*file_choice_data].file_mutex);
+        ret = read_single_dn_from_file_sem(file_data[file_choice_data->file].file_ptr, buf, buf_len, file_data[file_choice_data->file].file_mutex);
     }
 
     return ret;
@@ -215,7 +217,7 @@ void * requester_loop(requester_thread_input_t * input)
 
     int domain_names_serviced = 0;
 
-    int file_choice_data = -1;
+    file_choice_data_t file_choice_data = {-1,0};
 
     //while(read_single_dn_from_file_sem(input->in_file_data_p[0].file_ptr, file_data, BUFF_ENTRY_SIZE, input->in_file_data_p[0].file_mutex)) // TODO: change
     while(read_single_dn_from_file_data_list(input->in_file_data_p, input->in_file_len, file_data, BUFF_ENTRY_SIZE, input->in_file_io_mutex_p, &file_choice_data))
@@ -247,7 +249,7 @@ void * requester_loop(requester_thread_input_t * input)
     // Im going to deviate from how the write up wants us to do thing and im going to log the number
     // of domains served not the number of files served
     char log_data[128];
-    sprintf(log_data, "Thread %d serviced %d domain names.", get_tid(), domain_names_serviced);
+    sprintf(log_data, "Thread %d serviced %d files.", get_tid(), file_choice_data.files_served);
     writeln_data_to_file_sem(input->log_file_p, log_data, input->log_file_io_mutex_p);
 
     return NULL; // TODO: make return info
@@ -278,6 +280,8 @@ void * resolver_loop(resolver_thread_input_t * input)
         input->thread_input_p->domain_name_request_buf.buf_len --;
         strncpy(buf_data, input->thread_input_p->domain_name_request_buf.buf_data[input->thread_input_p->domain_name_request_buf.buf_len], BUFF_ENTRY_SIZE);
 
+        sem_post(input->thread_input_p->shared_buf_sem_p);
+        
 #ifdef DEBUG
         printf("in %s: logic: %s\n", __FUNCTION__, buf_data);
 #endif
@@ -300,8 +304,6 @@ void * resolver_loop(resolver_thread_input_t * input)
             sprintf(log_data, "%s, ", buf_data);
             writeln_data_to_file_sem(input->log_file_p, log_data, input->log_file_io_mutex_p);
         }
-
-        sem_post(input->thread_input_p->shared_buf_sem_p);
 
 
         sem_post(input->thread_input_p->shared_buf_space_avail_sem_p); // We finished removing one
@@ -575,7 +577,8 @@ int main(int argc, char *argv[])
     return ret;
 }
 
-// TODO: testing
-// TODO: error handling
+// TODO: more testing
+// TODO: more error handling
 
 // using: ./multi-lookup.o 5 10 test1.txt test2.txt input/names1.txt input/names2.txt input/name3.txt input/names4.txt input/names5.txt input/names3.txt 2> errlog.txt
+// using: ./multi-lookup.o 5 10 test1.txt test2.txt input/names1.txt input/names2.txt input/names3.txt input/names4.txt input/names5.txt input/names1.txt input/names2.txt input/names3.txt input/names4.txt input/names5.txt 2> errlog.txt
