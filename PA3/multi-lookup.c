@@ -8,44 +8,9 @@
 #include <stdlib.h>
 #include <unistd.h>
 
+#include "multi-lookup.h"
+
 #include "util.h"
-
-#define BUFF_SIZE 1024
-#define BUFF_ENTRY_SIZE 100
-
-#define MAX_INFILES 5
-
-typedef struct
-{
-    char ** buf_data;
-    int buf_len;
-} domain_name_request_buf_t;
-
-
-typedef struct
-{
-    sem_t * shared_buf_sem_p;
-    sem_t * shared_buf_space_avail_sem_p;
-    sem_t * shared_buf_space_used_sem_p;
-    domain_name_request_buf_t domain_name_request_buf;
-} thread_input_t;
-
-typedef struct
-{
-    thread_input_t * thread_input_p;
-    sem_t * in_file_io_mutex_p;
-    sem_t * log_file_io_mutex_p;
-    FILE **in_file_p;
-    FILE * log_file_p;
-} requester_thread_input_t;
-
-typedef struct
-{
-    thread_input_t * thread_input_p;
-    sem_t * log_file_io_mutex_p;
-    FILE * log_file_p;
-
-} resolver_thread_input_t;
 
 
 int process_dn(char* dn, char* out)
@@ -211,12 +176,13 @@ void * resolver_loop(resolver_thread_input_t * input)
 
         printf("in %s: logic: %s\n", __FUNCTION__, buf_data);
 
-        process_dn(buf_data, resolver_data);
-
-        // do something with resolver_data
-        printf("in %s: resolver_data: %s\n", __FUNCTION__, resolver_data);
-        sprintf(log_data, "%s, %s", buf_data, resolver_data);
-        writeln_data_to_file_sem(input->log_file_p, log_data, input->log_file_io_mutex_p);
+        if(process_dn(buf_data, resolver_data))
+        {
+            // do something with resolver_data
+            printf("in %s: resolver_data: %s\n", __FUNCTION__, resolver_data);
+            sprintf(log_data, "%s, %s", buf_data, resolver_data);
+            writeln_data_to_file_sem(input->log_file_p, log_data, input->log_file_io_mutex_p);
+        } // TODO: add else
 
         sem_post(input->thread_input_p->shared_buf_sem_p);
 
@@ -257,12 +223,20 @@ int start_requester_resolver_loop(int num_requesters,
     int num_resolvers,
     char * log_requesters,
     char * log_resolvers,
-    char *in_files[5])
+    char **in_files, int num_infiles)
 {
     printf("in %s\n", __FUNCTION__);
 
-    if(num_requesters != 1 || num_resolvers != 1)
-        return -1; // only one of each thread
+    if(num_requesters > MAX_REQUESTERS || num_resolvers > MAX_RESOLVERS || num_requesters <= 0 || num_resolvers <= 0)
+    {
+        printf("Oops, it looks like you meant to enter the correct number of threads\n");
+        return -1;
+    }
+
+    if(num_infiles != 1)
+    {
+        return -1;
+    }
 
     // Alloc shared buf
     char **domain_name_request_buf = malloc(BUFF_SIZE * sizeof(char*));
@@ -309,9 +283,9 @@ int start_requester_resolver_loop(int num_requesters,
 
     printf("in %s: start thread stuff part2\n", __FUNCTION__);
 
-    start_requesters(num_requesters, requester_shared_input_p, requester_threads);
-
     start_resolvers(num_resolvers, resolver_shared_input_p, resolver_threads);
+
+    start_requesters(num_requesters, requester_shared_input_p, requester_threads);
 
     // wait on threads 
     // clean up threads
@@ -365,16 +339,17 @@ int main(int argc, char *argv[])
     int num_resolvers = 0;
     char * log_requesters = NULL;
     char * log_resolvers = NULL;
-    char *in_files[5];
+    char *in_files[MAX_INFILES];
+    int num_infiles = 0;
     
     if(argc < 6)
     {
         printf("expected 4 args and at least 1 input file.\n");
         return -1;
     }
-    else if (argc > 10)
+    else if (argc > MAX_INFILES + 5)
     {
-        printf("only 5 input files please.\n");
+        printf("only %d input files please.\n", MAX_INFILES);
         return -1;
     }
     else
@@ -387,17 +362,15 @@ int main(int argc, char *argv[])
         log_requesters = argv[3];
         log_resolvers = argv[4];
 
-        // set in_files
-        if(argc - 5 > 1)
-            return -1; // only 1 file for now
 
         for (int i = 0; i < argc - 5; i++)
         {
             in_files[i] = argv[i + 5];
+            num_infiles++;
         }
     }
 
-    return start_requester_resolver_loop(num_requesters, num_resolvers, log_requesters, log_resolvers, in_files);
+    return start_requester_resolver_loop(num_requesters, num_resolvers, log_requesters, log_resolvers, in_files, num_infiles);
 }
 
 // TODO: add support for multiple infiles
