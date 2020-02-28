@@ -12,30 +12,42 @@
 
 #include "util.h"
 
+//#define DEBUG
+#define VERBOSE
+
 
 int process_dn(char* dn, char* out)
 {
+#ifdef DEBUG
     printf("in %s with dn: %s\n", __FUNCTION__, dn);
+#endif
 
     int ret = dnslookup(dn, out, BUFF_ENTRY_SIZE);
 
-    if(ret == UTIL_SUCCESS)
+    if(ret != UTIL_SUCCESS)
+    {
+#ifdef DEBUG
+        printf("in %s, failed\n", __FUNCTION__);
+#endif
+        fprintf(stderr, "%s is not a valid host name\n", dn);
+    }
+#ifdef DEBUG
+    else
     {
         printf("in %s, ret: %d, with out_put: %s\n", __FUNCTION__, ret, out);
     }
-    else
-    {
-        printf("in %s, failed\n", __FUNCTION__);
-    }
+#endif
 
-    return ret;
+    return ret == UTIL_SUCCESS;
 }
 
 /* start file read write monitor stuff */
 
 FILE * open_file_sem(char * file_name, char * access_type, sem_t * mutex_p)
 {
+#ifdef DEBUG
     printf("in %s: %s, %s\n", __FUNCTION__, file_name, access_type);
+#endif
 
     sem_wait(mutex_p); // Not really needed
 
@@ -48,7 +60,9 @@ FILE * open_file_sem(char * file_name, char * access_type, sem_t * mutex_p)
 
 bool close_file_sem(FILE * fp, sem_t * mutex_p)
 {
+#ifdef DEBUG
     printf("in %s\n", __FUNCTION__);
+#endif
     sem_wait(mutex_p);
 
     int ret = fclose(fp);
@@ -60,24 +74,99 @@ bool close_file_sem(FILE * fp, sem_t * mutex_p)
 
 bool read_single_dn_from_file_sem(FILE * fp, char* buf, int len, sem_t * mutex_p) // turn into a monitor or something
 {
+    //if(fp == NULL)
+    //{
+    //    return 0;
+    //}
+#ifdef DEBUG
     printf("in %s\n", __FUNCTION__);
+#endif
     sem_wait(mutex_p);
 
     bool ret = fgets(buf, len, fp) != NULL;
     if (ret)
-        buf[strlen(buf) - 1] = 0; // Remove new line
+    {
+        buf[strlen(buf) - 1] = (char)0; // Remove new line
+    }
 
     sem_post(mutex_p);
 
     return ret;
 }
 
+int pick_new_infile(file_data_t * file_data, int file_data_len, sem_t * mutex_p)
+{
+#ifdef DEBUG
+    printf("in %s\n", __FUNCTION__);
+#endif
+
+// pick new file file
+    sem_wait(mutex_p);
+    int ret = -1;
+
+    for(int i = 0; i < file_data_len; i++)
+    {
+        if(file_data[i].state)
+        {
+            ret = i;
+            file_data[i].state = 0;
+            break;
+        }
+    }
+
+    sem_post(mutex_p);
+
+    return ret;
+}
+
+int read_single_dn_from_file_data_list(file_data_t * file_data, int file_data_len, char* buf, int buf_len, sem_t * mutex_p, int * file_choice_data)
+{
+#ifdef DEBUG
+    printf("in %s\n", __FUNCTION__);
+#endif
+
+    if(*file_choice_data == -1)
+    {
+        // pick new file file
+        *file_choice_data = pick_new_infile(file_data, file_data_len, mutex_p);
+
+        if(*file_choice_data == -1) // issue
+            return 0; // No new file found
+
+#ifdef VERBOSE
+        printf("in %s, start reading filenum %d\n", __FUNCTION__, *file_choice_data);
+#endif
+    }
+
+    int ret = read_single_dn_from_file_sem(file_data[*file_choice_data].file_ptr, buf, buf_len, file_data[*file_choice_data].file_mutex);
+
+    if(!ret) // We might need to file a new file
+    {
+        *file_choice_data = pick_new_infile(file_data, file_data_len, mutex_p);
+        if(*file_choice_data == -1)
+            return 0; // No new file found
+
+#ifdef VERBOSE
+        printf("in %s, start reading filenum %d\n", __FUNCTION__, *file_choice_data);
+#endif
+
+        // try again
+        ret = read_single_dn_from_file_sem(file_data[*file_choice_data].file_ptr, buf, buf_len, file_data[*file_choice_data].file_mutex);
+    }
+
+    return ret;
+}
+
 bool writeln_data_to_file_sem(FILE * fp, char* data, sem_t * mutex_p)
 {
+#ifdef DEBUG
     printf("in %s\n", __FUNCTION__);
+#endif
     sem_wait(mutex_p);
 
+#ifdef DEBUG
     printf("in %s: about to write: %s\n", __FUNCTION__, data);
+#endif
     fprintf(fp, "%s\n", data);
 
     sem_post(mutex_p);
@@ -89,7 +178,9 @@ bool writeln_data_to_file_sem(FILE * fp, char* data, sem_t * mutex_p)
 
 sem_t * create_sem(int _pshared, int _value)
 {
+#ifdef DEBUG
     printf("in %s\n", __FUNCTION__);
+#endif
     sem_t * mutex_p = malloc(sizeof(sem_t));
     sem_init(mutex_p, _pshared, _value);
     return mutex_p;
@@ -97,7 +188,9 @@ sem_t * create_sem(int _pshared, int _value)
 
 void remove_sem(sem_t * mutex_p)
 {
+#ifdef DEBUG
     printf("in %s\n", __FUNCTION__);
+#endif
     sem_destroy(mutex_p);
     free(mutex_p);
 }
@@ -113,20 +206,27 @@ int get_tid()
 
 void * requester_loop(requester_thread_input_t * input)
 {
+#ifdef DEBUG
     printf("in %s\n", __FUNCTION__);
+#endif
 
     char file_data[BUFF_ENTRY_SIZE];
 
     int domain_names_serviced = 0;
 
-    while(read_single_dn_from_file_sem(input->in_file_p[0], file_data, BUFF_ENTRY_SIZE, input->in_file_io_mutex_p)) // TODO: change
+    int file_choice_data = -1;
+
+    //while(read_single_dn_from_file_sem(input->in_file_data_p[0].file_ptr, file_data, BUFF_ENTRY_SIZE, input->in_file_data_p[0].file_mutex)) // TODO: change
+    while(read_single_dn_from_file_data_list(input->in_file_data_p, input->in_file_len, file_data, BUFF_ENTRY_SIZE, input->in_file_io_mutex_p, &file_choice_data))
     {
         sem_wait(input->thread_input_p->shared_buf_space_avail_sem_p); // We are adding 1 if we can
 
 
         sem_wait(input->thread_input_p->shared_buf_sem_p);
-        // TODO: logic
+        // logic
+#ifdef DEBUG
         printf("in %s: logic: %s\n", __FUNCTION__, file_data);
+#endif
 
         strncpy(input->thread_input_p->domain_name_request_buf.buf_data[input->thread_input_p->domain_name_request_buf.buf_len], file_data, BUFF_ENTRY_SIZE);
         input->thread_input_p->domain_name_request_buf.buf_len ++;
@@ -141,6 +241,7 @@ void * requester_loop(requester_thread_input_t * input)
         //sleep(2); // for testing
     }
 
+    // TODO: change to normal
     // Write to log that we done
     // Im going to deviate from how the write up wants us to do thing and im going to log the number
     // of domains served not the number of files served
@@ -157,13 +258,15 @@ void * resolver_loop(resolver_thread_input_t * input)
     char resolver_data[BUFF_ENTRY_SIZE];
     char log_data[2*BUFF_ENTRY_SIZE+3];
 
+#ifdef DEBUG
     printf("in %s\n", __FUNCTION__);
-    while(true) // TODO: change
+#endif
+    while(true) // TODO: change if there is a better way
     {
         sem_wait(input->thread_input_p->shared_buf_space_used_sem_p); // We are removing 1 if we can
 
         sem_wait(input->thread_input_p->shared_buf_sem_p);
-        // TODO: logic
+        // logic
         if(input->thread_input_p->domain_name_request_buf.buf_len == 0) // Only if the requesters are done
         {
             sem_post(input->thread_input_p->shared_buf_space_used_sem_p); // allow next thread to see exit
@@ -174,15 +277,28 @@ void * resolver_loop(resolver_thread_input_t * input)
         input->thread_input_p->domain_name_request_buf.buf_len --;
         strncpy(buf_data, input->thread_input_p->domain_name_request_buf.buf_data[input->thread_input_p->domain_name_request_buf.buf_len], BUFF_ENTRY_SIZE);
 
+#ifdef DEBUG
         printf("in %s: logic: %s\n", __FUNCTION__, buf_data);
+#endif
 
         if(process_dn(buf_data, resolver_data))
         {
             // do something with resolver_data
+#ifdef DEBUG
             printf("in %s: resolver_data: %s\n", __FUNCTION__, resolver_data);
+#endif
             sprintf(log_data, "%s, %s", buf_data, resolver_data);
             writeln_data_to_file_sem(input->log_file_p, log_data, input->log_file_io_mutex_p);
-        } // TODO: add else
+        }
+        else
+        {
+            // do something with resolver_data
+#ifdef DEBUG
+            printf("in %s: process_dn fail cond\n", __FUNCTION__);
+#endif
+            sprintf(log_data, "%s, ", buf_data);
+            writeln_data_to_file_sem(input->log_file_p, log_data, input->log_file_io_mutex_p);
+        }
 
         sem_post(input->thread_input_p->shared_buf_sem_p);
 
@@ -197,10 +313,15 @@ void * resolver_loop(resolver_thread_input_t * input)
 
 int start_requesters(int num_requesters, requester_thread_input_t * requester_shared_input_p, pthread_t * thread_array)
 {
+#ifdef DEBUG
     printf("in %s\n", __FUNCTION__);
+#endif
 
     for (int req_num = 0; req_num < num_requesters; req_num++)
     {
+#ifdef VERBOSE
+        printf("in %s, starting requester thread %d\n", __FUNCTION__, req_num);
+#endif
         pthread_create(&thread_array[req_num], NULL, (void * (*)(void *)) requester_loop, (void *)requester_shared_input_p);
     }
 
@@ -209,10 +330,15 @@ int start_requesters(int num_requesters, requester_thread_input_t * requester_sh
 
 int start_resolvers(int num_resolvers, resolver_thread_input_t * resolver_shared_input_p, pthread_t * thread_array)
 {
+#ifdef DEBUG
     printf("in %s\n", __FUNCTION__);
+#endif
 
     for (int res_num = 0; res_num < num_resolvers; res_num++)
     {
+#ifdef VERBOSE
+        printf("in %s, starting resolver thread %d\n", __FUNCTION__, res_num);
+#endif
         pthread_create(&thread_array[res_num], NULL, (void * (*)(void *)) resolver_loop, (void *)resolver_shared_input_p);
     }
 
@@ -225,16 +351,19 @@ int start_requester_resolver_loop(int num_requesters,
     char * log_resolvers,
     char **in_files, int num_infiles)
 {
+#ifdef DEBUG
     printf("in %s\n", __FUNCTION__);
+#endif
 
     if(num_requesters > MAX_REQUESTERS || num_resolvers > MAX_RESOLVERS || num_requesters <= 0 || num_resolvers <= 0)
     {
-        printf("Oops, it looks like you meant to enter the correct number of threads\n");
+        fprintf(stderr, "Oops, it looks like you meant to enter the correct number of threads\n");
         return -1;
     }
 
-    if(num_infiles != 1)
+    if(num_infiles > MAX_INFILES || num_infiles <= 0)
     {
+        fprintf(stderr, "Oops, it looks like you meant to enter the correct number of files\n");
         return -1;
     }
 
@@ -255,7 +384,9 @@ int start_requester_resolver_loop(int num_requesters,
     sem_t * resolver_log_file_io_mutex_p = create_sem(0,1);
 
     // start thread stuff
+#ifdef DEBUG
     printf("in %s: start thread stuff\n", __FUNCTION__);
+#endif
     pthread_t threads[num_requesters + num_resolvers];
     pthread_t * requester_threads = &threads[0];
     pthread_t * resolver_threads = &threads[num_requesters];
@@ -269,19 +400,36 @@ int start_requester_resolver_loop(int num_requesters,
 
     requester_thread_input_t * requester_shared_input_p = malloc(sizeof(requester_thread_input_t));
     requester_shared_input_p->thread_input_p = shared_input_p;
-    requester_shared_input_p->in_file_io_mutex_p = in_file_io_mutex_p;
+    requester_shared_input_p->in_file_io_mutex_p = in_file_io_mutex_p; // TODO: turn into array parallel to in_file_p
     requester_shared_input_p->log_file_io_mutex_p = requester_log_file_io_mutex_p;
-    requester_shared_input_p->in_file_p = malloc(MAX_INFILES * sizeof(FILE *));
-    requester_shared_input_p->in_file_p[0] = open_file_sem(in_files[0], "r", in_file_io_mutex_p); // TODO: change, do we care that it is on the stack
-    requester_shared_input_p->log_file_p = open_file_sem(log_requesters, "a", requester_log_file_io_mutex_p); // TODO: change sim
+    //requester_shared_input_p->in_file_p = malloc(MAX_INFILES * sizeof(FILE *));
+    requester_shared_input_p->in_file_data_p = malloc(MAX_INFILES * sizeof(file_data_t));
+    requester_shared_input_p->in_file_len = num_infiles;
+    for(int i = 0; i < num_infiles; i++)
+    {
+        //requester_shared_input_p->in_file_p[i] = open_file_sem(in_files[i], "r", in_file_io_mutex_p); // TODO: change, do we care that it is on the stack
+
+        requester_shared_input_p->in_file_data_p[i].file_mutex = create_sem(0,1);
+        if((requester_shared_input_p->in_file_data_p[i].file_ptr = open_file_sem(in_files[i], "r", requester_shared_input_p->in_file_data_p[i].file_mutex)))
+            requester_shared_input_p->in_file_data_p[i].state = 1;
+        else
+        {
+            requester_shared_input_p->in_file_data_p[i].state = 0;
+
+            fprintf(stderr, "%s is not a valid input file\n", in_files[i]);
+        }
+
+    }
+    requester_shared_input_p->log_file_p = open_file_sem(log_requesters, "a", requester_log_file_io_mutex_p);
 
     resolver_thread_input_t * resolver_shared_input_p = malloc(sizeof(resolver_thread_input_t));
     resolver_shared_input_p->thread_input_p = shared_input_p;
     resolver_shared_input_p->log_file_io_mutex_p = resolver_log_file_io_mutex_p;
-    resolver_shared_input_p->log_file_p = open_file_sem(log_resolvers, "w", resolver_log_file_io_mutex_p); // TODO: change sim
+    resolver_shared_input_p->log_file_p = open_file_sem(log_resolvers, "w", resolver_log_file_io_mutex_p);
 
-
+#ifdef DEBUG
     printf("in %s: start thread stuff part2\n", __FUNCTION__);
+#endif
 
     start_resolvers(num_resolvers, resolver_shared_input_p, resolver_threads);
 
@@ -293,21 +441,34 @@ int start_requester_resolver_loop(int num_requesters,
     {
         if(i == num_requesters) // We are done with all the requesting
         {
+#ifdef DEBUG
             printf("in %s: all requesters done\n", __FUNCTION__);
+#endif
             sem_post(shared_buf_space_used_sem_p); // Tells the resolvers that requesters are done. TODO: find a better way
         }
 
         pthread_join(threads[i], NULL);
+#ifdef VERBOSE
         printf("in %s: thread %d exit\n", __FUNCTION__, i);
+#endif
     }
 
     free(shared_input_p);
 
-    close_file_sem(requester_shared_input_p->in_file_p[0], in_file_io_mutex_p);
+    for(int i = 0; i < num_infiles; i++)
+    {
+        //requester_shared_input_p->in_file_p[i] = close_file_sem(in_files[i], in_file_io_mutex_p); // TODO: change, do we care that it is on the stack
+
+        requester_shared_input_p->in_file_data_p[i].state = 0;
+        if(requester_shared_input_p->in_file_data_p[i].file_ptr)
+            close_file_sem(requester_shared_input_p->in_file_data_p[i].file_ptr, requester_shared_input_p->in_file_data_p[i].file_mutex);
+        remove_sem(requester_shared_input_p->in_file_data_p[i].file_mutex);
+    }
     close_file_sem(requester_shared_input_p->log_file_p, requester_log_file_io_mutex_p);
     close_file_sem(resolver_shared_input_p->log_file_p, resolver_log_file_io_mutex_p);
 
-    free(requester_shared_input_p->in_file_p);
+    //free(requester_shared_input_p->in_file_p);
+    free(requester_shared_input_p->in_file_data_p);
 
     free(requester_shared_input_p);
     free(resolver_shared_input_p);
@@ -317,7 +478,7 @@ int start_requester_resolver_loop(int num_requesters,
     remove_sem(shared_buf_space_avail_sem_p);
     remove_sem(shared_buf_space_used_sem_p);
 
-    remove_sem(in_file_io_mutex_p); // TODO: move, or ???
+    remove_sem(in_file_io_mutex_p);
 
     remove_sem(requester_log_file_io_mutex_p);
     remove_sem(resolver_log_file_io_mutex_p);
@@ -334,7 +495,10 @@ int start_requester_resolver_loop(int num_requesters,
 
 int main(int argc, char *argv[])
 {
+#ifdef DEBUG
     printf("in %s\n", __FUNCTION__);
+#endif
+
     int num_requesters = 0;
     int num_resolvers = 0;
     char * log_requesters = NULL;
@@ -344,12 +508,12 @@ int main(int argc, char *argv[])
     
     if(argc < 6)
     {
-        printf("expected 4 args and at least 1 input file.\n");
+        fprintf(stderr, "expected 4 args and at least 1 input file.\n");
         return -1;
     }
     else if (argc > MAX_INFILES + 5)
     {
-        printf("only %d input files please.\n", MAX_INFILES);
+        fprintf(stderr, "only %d input files please.\n", MAX_INFILES);
         return -1;
     }
     else
@@ -362,6 +526,20 @@ int main(int argc, char *argv[])
         log_requesters = argv[3];
         log_resolvers = argv[4];
 
+        FILE * fp;
+        if(!(fp = fopen(log_requesters, "a"))) // I dont know why im doing this
+        {
+            fprintf(stderr, "It look like you meant to make requesters log be valid.\n");
+            return -1;
+        }
+        fclose(fp);
+        if(!(fp = fopen(log_resolvers, "r")))
+        {
+            fprintf(stderr, "It look like you meant to make resolvers log be valid.\n");
+            return -1;
+        }
+        fclose(fp);
+
 
         for (int i = 0; i < argc - 5; i++)
         {
@@ -370,9 +548,14 @@ int main(int argc, char *argv[])
         }
     }
 
-    return start_requester_resolver_loop(num_requesters, num_resolvers, log_requesters, log_resolvers, in_files, num_infiles);
+    printf("starting program\n");
+    int ret = start_requester_resolver_loop(num_requesters, num_resolvers, log_requesters, log_resolvers, in_files, num_infiles);
+    printf("done: %d\n", ret);
+    return ret;
 }
 
-// TODO: add support for multiple infiles
-// TODO: add support for more then one thread of each type
-// TODO: make sure there are no memory leaks
+// TODO: testing
+// TODO: error handling
+// TODO: add time stuff
+
+// using: ./multi-lookup.o 5 10 test1.txt test2.txt input/names1.txt input/names2.txt input/name3.txt input/names4.txt input/names5.txt input/names3.txt 2> errlog.txt

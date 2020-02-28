@@ -35,10 +35,18 @@ typedef struct
 
 typedef struct
 {
+    FILE * file_ptr;
+    int state;
+    sem_t * file_mutex;
+} file_data_t;
+
+typedef struct
+{
     thread_input_t * thread_input_p;
     sem_t * in_file_io_mutex_p;
     sem_t * log_file_io_mutex_p;
-    FILE **in_file_p;
+    //FILE **in_file_p;
+    file_data_t * in_file_data_p;
     int in_file_len;
     FILE * log_file_p;
 } requester_thread_input_t;

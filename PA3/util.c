@@ -33,8 +33,10 @@ int dnslookup(const char* hostname, char* firstIPstr, int maxSize){
     /* Lookup Hostname */
     addrError = getaddrinfo(hostname, NULL, NULL, &headresult);
     if(addrError){
+#ifdef UTIL_DEBUG
 	fprintf(stderr, "Error looking up Address: %s\n",
 		gai_strerror(addrError));
+#endif
 	return UTIL_FAILURE;
     }
     /* Loop Through result Linked List */
