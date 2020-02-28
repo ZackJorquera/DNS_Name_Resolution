@@ -7,13 +7,14 @@
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <sys/time.h>
 
 #include "multi-lookup.h"
 
 #include "util.h"
 
 //#define DEBUG
-#define VERBOSE
+//#define VERBOSE
 
 
 int process_dn(char* dn, char* out)
@@ -508,7 +509,7 @@ int main(int argc, char *argv[])
     
     if(argc < 6)
     {
-        fprintf(stderr, "expected 4 args and at least 1 input file.\n");
+        fprintf(stderr, "Expected 4 args and at least 1 input file.\nmulti-lookup <#requesters> <#resolvers> <#req_log> <#res_log> [<#infile>, ...]\n");
         return -1;
     }
     else if (argc > MAX_INFILES + 5)
@@ -548,14 +549,33 @@ int main(int argc, char *argv[])
         }
     }
 
+    struct timeval t1;
+    struct timeval t2;
+    time_t elip_time;
+
+    gettimeofday(&t1,0);
+
+#ifdef VERBOSE
     printf("starting program\n");
+#endif
+
+
+
     int ret = start_requester_resolver_loop(num_requesters, num_resolvers, log_requesters, log_resolvers, in_files, num_infiles);
+#ifdef VERBOSE
     printf("done: %d\n", ret);
+#endif
+
+    gettimeofday(&t2,0);
+
+    elip_time = (t2.tv_sec - t1.tv_sec) * 1000000 + (t2.tv_usec - t1.tv_usec);
+
+    printf("Took %ld micro secs (%f sec) to finish\n", elip_time, (float)elip_time / (float)1000000);
+
     return ret;
 }
 
 // TODO: testing
 // TODO: error handling
-// TODO: add time stuff
 
 // using: ./multi-lookup.o 5 10 test1.txt test2.txt input/names1.txt input/names2.txt input/name3.txt input/names4.txt input/names5.txt input/names3.txt 2> errlog.txt
