@@ -15,7 +15,19 @@
 
 //#define DEBUG
 //#define VERBOSE
+//#define NO_INTERNET
 
+#define MULT_FILE_THREADS // Just a little faster
+
+
+int get_tid()
+{
+#ifdef SYS_gettid
+    return syscall(SYS_gettid);
+#else
+    return -1;
+#endif
+}
 
 int process_dn(char* dn, char* out)
 {
@@ -23,7 +35,13 @@ int process_dn(char* dn, char* out)
     printf("in %s with dn: %s\n", __FUNCTION__, dn);
 #endif
 
+#ifdef NO_INTERNET
+    strncpy(out, "no.internet.com", 20);
+    usleep(5000);
+    int ret = UTIL_SUCCESS;
+#else
     int ret = dnslookup(dn, out, BUFF_ENTRY_SIZE);
+#endif
 
     if(ret != UTIL_SUCCESS)
     {
@@ -73,7 +91,7 @@ bool close_file_sem(FILE * fp, sem_t * mutex_p)
     return ret;
 }
 
-bool read_single_dn_from_file_sem(FILE * fp, char* buf, int len, sem_t * mutex_p) // turn into a monitor or something
+bool read_single_dn_from_file_sem(FILE * fp, char* buf, int len, int *file_state_p, sem_t * mutex_p) // turn into a monitor or something
 {
     //if(fp == NULL)
     //{
@@ -89,6 +107,10 @@ bool read_single_dn_from_file_sem(FILE * fp, char* buf, int len, sem_t * mutex_p
     {
         buf[strlen(buf) - 1] = (char)0; // Remove new line
     }
+    else
+    {
+        *file_state_p = 0; // we are done reading
+    }
 
     sem_post(mutex_p);
 
@@ -97,6 +119,8 @@ bool read_single_dn_from_file_sem(FILE * fp, char* buf, int len, sem_t * mutex_p
 
 int pick_new_infile(file_data_t * file_data, int file_data_len, sem_t * mutex_p)
 {
+    // state: 0 fully read, 1 open (not threads reading), 2 being read by another thread
+
 #ifdef DEBUG
     printf("in %s\n", __FUNCTION__);
 #endif
@@ -107,13 +131,28 @@ int pick_new_infile(file_data_t * file_data, int file_data_len, sem_t * mutex_p)
 
     for(int i = 0; i < file_data_len; i++)
     {
-        if(file_data[i].state)
+        if(file_data[i].state == 1)
         {
             ret = i;
-            file_data[i].state = 0;
+            file_data[i].state = 2;
             break;
         }
     }
+
+#ifdef MULT_FILE_THREADS
+    // there are no unopen files, lets pick share one
+    if(ret == -1)
+    {
+        for(int i = 0; i < file_data_len; i++)
+        {
+            if(file_data[i].state == 2)
+            {
+                ret = i;
+                break;
+            }
+        }
+    }
+#endif
 
     sem_post(mutex_p);
 
@@ -136,25 +175,26 @@ int read_single_dn_from_file_data_list(file_data_t * file_data, int file_data_le
 
         file_choice_data->files_served++;
 #ifdef VERBOSE
-        printf("in %s, start reading filenum %d\n", __FUNCTION__, *file_choice_data);
+        printf("in %s, %d started reading(1) filenum %d\n", __FUNCTION__, get_tid(), file_choice_data->file);
 #endif
     }
 
-    int ret = read_single_dn_from_file_sem(file_data[file_choice_data->file].file_ptr, buf, buf_len, file_data[file_choice_data->file].file_mutex);
+    int ret = read_single_dn_from_file_sem(file_data[file_choice_data->file].file_ptr, buf, buf_len, &file_data[file_choice_data->file].state, file_data[file_choice_data->file].file_mutex);
 
     if(!ret) // We might need to file a new file
     {
+
         file_choice_data->file = pick_new_infile(file_data, file_data_len, mutex_p);
         if(file_choice_data->file == -1)
             return 0; // No new file found
 
         file_choice_data->files_served++;
 #ifdef VERBOSE
-        printf("in %s, start reading filenum %d\n", __FUNCTION__, *file_choice_data);
+        printf("in %s, %d started reading(2) filenum %d\n", __FUNCTION__, get_tid(), file_choice_data->file);
 #endif
 
         // try again
-        ret = read_single_dn_from_file_sem(file_data[file_choice_data->file].file_ptr, buf, buf_len, file_data[file_choice_data->file].file_mutex);
+        ret = read_single_dn_from_file_sem(file_data[file_choice_data->file].file_ptr, buf, buf_len, &file_data[file_choice_data->file].state, file_data[file_choice_data->file].file_mutex);
     }
 
     return ret;
@@ -196,15 +236,6 @@ void remove_sem(sem_t * mutex_p)
 #endif
     sem_destroy(mutex_p);
     free(mutex_p);
-}
-
-int get_tid()
-{
-#ifdef SYS_gettid
-    return syscall(SYS_gettid);
-#else
-    return -1;
-#endif
 }
 
 void * requester_loop(requester_thread_input_t * input)
@@ -249,7 +280,7 @@ void * requester_loop(requester_thread_input_t * input)
     // Im going to deviate from how the write up wants us to do thing and im going to log the number
     // of domains served not the number of files served
     char log_data[128];
-    sprintf(log_data, "Thread %d serviced %d files.", get_tid(), file_choice_data.files_served);
+    sprintf(log_data, "Thread %d serviced %d names from %d files.", get_tid(), domain_names_serviced, file_choice_data.files_served);
     writeln_data_to_file_sem(input->log_file_p, log_data, input->log_file_io_mutex_p);
 
     return NULL; // TODO: make return info
