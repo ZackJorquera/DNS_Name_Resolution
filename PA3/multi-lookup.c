@@ -560,6 +560,7 @@ int main(int argc, char *argv[])
         log_requesters = argv[3];
         log_resolvers = argv[4];
 
+        /*
         FILE * fp;
         if(!(fp = fopen(log_requesters, "a"))) // I dont know why im doing this
         {
@@ -573,7 +574,7 @@ int main(int argc, char *argv[])
             return -1;
         }
         fclose(fp);
-
+        */
 
         for (int i = 0; i < argc - 5; i++)
         {
