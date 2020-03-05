@@ -36,4 +36,8 @@ test53:
 
 test55:
 	echo "running test55" >> $(REQUESTER_LOG_FILE)
-	./$(OUTPUT_FILE) 5 3 $(REQUESTER_LOG_FILE) $(RESOLVER_LOG_FILE) input/names1.txt input/names2.txt input/names3.txt input/names4.txt input/names5.txt input/names1.txt input/names2.txt input/names3.txt input/names4.txt input/names5.txt 2> errlog.txt
+	./$(OUTPUT_FILE) 5 5 $(REQUESTER_LOG_FILE) $(RESOLVER_LOG_FILE) input/names1.txt input/names2.txt input/names3.txt input/names4.txt input/names5.txt input/names1.txt input/names2.txt input/names3.txt input/names4.txt input/names5.txt 2> errlog.txt
+
+memtest:
+	echo "running memtest" >> $(REQUESTER_LOG_FILE)
+	valgrind ./$(OUTPUT_FILE) 5 10 $(REQUESTER_LOG_FILE) $(RESOLVER_LOG_FILE) input/names1.txt input/names2.txt input/names3.txt input/names4.txt input/names5.txt input/names1.txt input/names2.txt input/names3.txt input/names4.txt input/names5.txt
