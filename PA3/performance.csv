@@ -1,8 +1,0 @@
-Num Requester Threads, Num Resolver Threads, Total Runtime (secs), rec 1, req 2, req 3, req 4, req 5,
-1,1,2.779804,Thread 3578 serviced 206 names from 10 files.,,,,
-1,3,0.386960,Thread 3651 serviced 206 names from 10 files.,,,,
-3,1,1.051648,Thread 3714 serviced 122 names from 6 files.,Thread 3715 serviced 83 names from 5 files.,Thread 3716 serviced 1 names from 1 files.,,
-3,5,0.260988,Thread 3847 serviced 88 names from 5 files.,Thread 3845 serviced 78 names from 4 files.,Thread 3846 serviced 40 names from 3 files.,,
-5,3,0.369454,Thread 3948 serviced 20 names from 1 files.,Thread 3945 serviced 66 names from 4 files.,Thread 3949 serviced 0 names from 1 files.,Thread 3946 serviced 40 names from 3 files.,Thread 3947 serviced 80 names from 5 files.,
-5,5,0.288674,Thread 4293 serviced 43 names from 3 files.,Thread 4294 serviced 14 names from 1 files.,Thread 4292 serviced 143 names from 7 files.,Thread 4295 serviced 6 names from 1 files.,Thread 4296 serviced 0 names from 0 files.
-5,10,0.126504,Thread 4356 serviced 103 names from 6 files.,Thread 4357 serviced 53 names from 3 files.,Thread 4355 serviced 49 names from 3 files.,Thread 4358 serviced 1 names from 1 files.,Thread 4359 serviced 0 names from 0 files.

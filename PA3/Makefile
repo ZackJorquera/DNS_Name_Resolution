@@ -4,7 +4,7 @@ REQUESTER_LOG_FILE = test1.txt
 RESOLVER_LOG_FILE = test2.txt
 
 all: 
-	gcc -Wall -Wextra -g multi-lookup.c util.c -lrt -pthread -o $(OUTPUT_FILE) 
+	gcc -Wall -Wextra -g -O3 multi-lookup.c util.c -lrt -pthread -o $(OUTPUT_FILE) 
 
 test1:
 	echo "running test1" >> $(REQUESTER_LOG_FILE)

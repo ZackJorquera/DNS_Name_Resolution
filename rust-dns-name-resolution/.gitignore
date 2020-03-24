@@ -9,3 +9,5 @@ test*
 errlog.txt
 results.txt
 serviced.txt
+interview.txt
+results-ref.txt
