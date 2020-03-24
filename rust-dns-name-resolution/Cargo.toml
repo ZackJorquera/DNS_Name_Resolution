@@ -1,5 +1,5 @@
 [package]
-name = "rust-dns-name-resolution"
+name = "multi-lookup"
 version = "0.1.0"
 authors = ["ZackJorquera <jorquerazack@gmail.com>"]
 build = "build.rs"

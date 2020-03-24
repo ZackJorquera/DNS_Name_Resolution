@@ -4,3 +4,8 @@ Cargo.lock
 *.a
 *.lib
 /.vscode
+
+test*
+errlog.txt
+results.txt
+serviced.txt

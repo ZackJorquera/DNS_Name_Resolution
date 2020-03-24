@@ -1,8 +1,7 @@
 *.o
 multi-lookup
 
-test1.txt
-test2.txt
+test*
 errlog.txt
 results.txt
 serviced.txt
